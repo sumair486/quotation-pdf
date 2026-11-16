@@ -1,115 +1,136 @@
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 
-const C = { ink: "#1c2b3a", accent: "#1f4e79", line: "#d9dee5", soft: "#eef2f6", muted: "#5b6b7b" };
+/*
+  The X imaging letterhead is a background image (public/invoice-bg.jpg).
+  Everything the user types is placed on top of it at fixed positions (in points, A4 = 595 x 842).
+*/
+
+const TABLE_TOP = 295; // first row starts here
+const TABLE_BOTTOM = 532; // last row must end above this
+const ROW_PAD = 4;
+const LINE_H = 12.6;
+const CHARS_PER_LINE = 80;
 
 const s = StyleSheet.create({
-  page: { padding: 40, paddingBottom: 60, fontSize: 10, fontFamily: "Helvetica", color: C.ink },
-  head: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 2, borderBottomColor: C.accent, paddingBottom: 14 },
-  company: { fontSize: 20, fontFamily: "Helvetica-Bold", color: C.accent },
-  small: { fontSize: 9, color: C.muted, marginTop: 3, lineHeight: 1.4 },
-  right: { alignItems: "flex-end" },
-  title: { fontSize: 18, fontFamily: "Helvetica-Bold", letterSpacing: 1 },
-  meta: { fontSize: 10, marginTop: 4 },
-  toBlock: { marginTop: 22 },
-  label: { fontSize: 9, color: C.muted, marginBottom: 3 },
-  toName: { fontSize: 12, fontFamily: "Helvetica-Bold" },
-  subject: { marginTop: 18, flexDirection: "row" },
-  subjectLabel: { fontFamily: "Helvetica-Bold", width: 55 },
-  subjectText: { flex: 1, fontFamily: "Helvetica-Bold" },
-  table: { marginTop: 18, borderWidth: 1, borderColor: C.line },
-  tr: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: C.line },
-  th: { backgroundColor: C.accent, color: "#fff", fontFamily: "Helvetica-Bold" },
-  cell: { padding: 7 },
-  cSn: { width: 40, textAlign: "center" },
-  cDesc: { flex: 1, borderLeftWidth: 1, borderLeftColor: C.line },
-  cAmt: { width: 110, textAlign: "right", borderLeftWidth: 1, borderLeftColor: C.line },
-  totalRow: { flexDirection: "row", backgroundColor: C.soft },
-  totalLabel: { flex: 1, padding: 8, textAlign: "right", fontFamily: "Helvetica-Bold" },
-  totalAmt: { width: 110, padding: 8, textAlign: "right", fontFamily: "Helvetica-Bold", fontSize: 11 },
-  notes: { marginTop: 22 },
-  noteText: { lineHeight: 1.5, fontSize: 9.5 },
-  sign: { marginTop: 50, alignItems: "flex-end" },
-  signLine: { width: 160, borderTopWidth: 1, borderTopColor: C.ink, paddingTop: 4, textAlign: "center" },
-  footer: { position: "absolute", bottom: 24, left: 40, right: 40, textAlign: "center", fontSize: 8, color: C.muted },
+  page: { fontFamily: "Times-Roman", fontSize: 11, color: "#111" },
+  bg: { position: "absolute", top: 0, left: 0, width: 595.28, height: 841.89 },
+  abs: { position: "absolute" },
+  desc: { fontSize: 10.5, lineHeight: 1.2 },
 });
 
 export function formatMoney(n) {
   return Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-export default function QuotationPDF({ data }) {
-  const rows = data.rows.filter((r) => r.description.trim() || Number(r.amount));
-  const total = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+export function formatDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}-${m}-${y}`;
+}
+
+function lineCount(text) {
+  return Math.max(
+    1,
+    String(text || "")
+      .split("\n")
+      .reduce((n, p) => n + Math.max(1, Math.ceil(p.length / CHARS_PER_LINE)), 0)
+  );
+}
+
+// Split rows into pages so they never run past the table
+function paginate(rows) {
+  const avail = TABLE_BOTTOM - TABLE_TOP;
+  const pages = [];
+  let cur = [];
+  let used = 0;
+  rows.forEach((r) => {
+    const h = lineCount(r.description) * LINE_H + ROW_PAD * 2;
+    if (used + h > avail && cur.length) {
+      pages.push(cur);
+      cur = [];
+      used = 0;
+    }
+    cur.push({ ...r, h });
+    used += h;
+  });
+  pages.push(cur);
+  return pages;
+}
+
+const Txt = ({ x, y, w, children, style, align }) => (
+  <Text style={[s.abs, { left: x, top: y, width: w, textAlign: align || "left" }, style]}>{children}</Text>
+);
+
+export default function InvoicePDF({ data, bg }) {
+  const items = data.rows.filter((r) => r.description.trim() || Number(r.amount));
+  const total = items.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   const cur = data.currency ? data.currency.trim() + " " : "";
-  const fmtDate = data.date
-    ? new Date(data.date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })
-    : "";
+  const pages = paginate(items);
+  const last = pages.length - 1;
+  let counter = 0;
 
   return (
-    <Document title={`Quotation ${data.number}`}>
-      <Page size="A4" style={s.page}>
-        <View style={s.head}>
-          <View style={{ maxWidth: 300 }}>
-            <Text style={s.company}>{data.companyName || "Your Company"}</Text>
-            {!!data.companyAddress && <Text style={s.small}>{data.companyAddress}</Text>}
-            {!!data.companyContact && <Text style={s.small}>{data.companyContact}</Text>}
-          </View>
-          <View style={s.right}>
-            <Text style={s.title}>QUOTATION</Text>
-            {!!data.number && <Text style={s.meta}>No: {data.number}</Text>}
-            <Text style={s.meta}>Date: {fmtDate}</Text>
-          </View>
-        </View>
+    <Document title={`Invoice ${data.number || ""}`.trim()}>
+      {pages.map((rows, pi) => (
+        <Page key={pi} size="A4" style={s.page}>
+          <Image src={bg} style={s.bg} fixed />
 
-        <View style={s.toBlock}>
-          <Text style={s.label}>To</Text>
-          <Text style={s.toName}>{data.toName}</Text>
-          {!!data.toAddress && <Text style={s.small}>{data.toAddress}</Text>}
-        </View>
+          {/* header fields (repeated on every page) */}
+          <Txt x={466} y={81} w={90} style={{ fontFamily: "Times-Bold" }}>{data.number}</Txt>
+          <Txt x={470} y={153} w={90} style={{ fontFamily: "Times-Bold" }}>{formatDate(data.date)}</Txt>
+          <Txt x={48} y={153} w={200} style={{ fontFamily: "Times-Bold" }}>{data.billTo}</Txt>
 
-        {!!data.subject && (
-          <View style={s.subject}>
-            <Text style={s.subjectLabel}>Subject:</Text>
-            <Text style={s.subjectText}>{data.subject}</Text>
-          </View>
-        )}
+          <Txt x={78} y={183} w={480}>{data.customer}</Txt>
+          <Txt x={78} y={203.5} w={480}>{data.address1}</Txt>
+          <Txt x={78} y={221.5} w={480}>{data.address2}</Txt>
+          <Txt x={78} y={241} w={480}>{data.project}</Txt>
 
-        <View style={s.table}>
-          <View style={[s.tr, s.th]} fixed>
-            <Text style={[s.cell, s.cSn]}>S. No</Text>
-            <Text style={[s.cell, s.cDesc]}>Work Description</Text>
-            <Text style={[s.cell, s.cAmt]}>Amount</Text>
-          </View>
-          {rows.map((r, i) => (
-            <View key={i} style={s.tr} wrap={false}>
-              <Text style={[s.cell, s.cSn]}>{i + 1}</Text>
-              <Text style={[s.cell, s.cDesc]}>{r.description}</Text>
-              <Text style={[s.cell, s.cAmt]}>{cur}{formatMoney(r.amount)}</Text>
-            </View>
-          ))}
-          <View style={s.totalRow} wrap={false}>
-            <Text style={s.totalLabel}>Total</Text>
-            <Text style={s.totalAmt}>{cur}{formatMoney(total)}</Text>
-          </View>
-        </View>
+          {/* rows */}
+          {(() => {
+            let y = TABLE_TOP;
+            return rows.map((r) => {
+              const top = y + ROW_PAD;
+              y += r.h;
+              counter += 1;
+              return (
+                <View key={counter}>
+                  <Txt x={0} y={top} w={54} align="center">{counter}</Txt>
+                  <Txt x={60} y={top} w={405} style={s.desc}>{r.description}</Txt>
+                  <Txt x={473} y={top} w={82} align="right">
+                    {Number(r.amount) ? `${cur}${formatMoney(r.amount)}` : ""}
+                  </Txt>
+                </View>
+              );
+            });
+          })()}
 
-        {!!data.notes && (
-          <View style={s.notes} wrap={false}>
-            <Text style={s.label}>Terms & Notes</Text>
-            <Text style={s.noteText}>{data.notes}</Text>
-          </View>
-        )}
+          {/* total */}
+          {pi === last ? (
+            <Txt x={473} y={540} w={82} align="right" style={{ fontFamily: "Times-Bold" }}>
+              {cur}{formatMoney(total)}
+            </Txt>
+          ) : (
+            <Txt x={300} y={542} w={100} align="right" style={{ fontSize: 9 }}>continued…</Txt>
+          )}
 
-        <View style={s.sign} wrap={false}>
-          <Text style={s.signLine}>{data.signatory || "Authorized Signature"}</Text>
-        </View>
+          {pages.length > 1 && (
+            <Txt x={0} y={546} w={300} style={{ fontSize: 9, left: 4 }}>
+              Page {pi + 1} of {pages.length}
+            </Txt>
+          )}
 
-        <Text
-          style={s.footer}
-          fixed
-          render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`}
-        />
-      </Page>
+          {/* payment (optional, all pages show it only on the last) */}
+          {pi === last && (
+            <>
+              <Txt x={84} y={653} w={170}>{data.payDetails}</Txt>
+              <Txt x={84} y={674} w={170}>{formatDate(data.paidDate)}</Txt>
+              <Txt x={84} y={698} w={170}>
+                {Number(data.paidAmount) ? `${cur}${formatMoney(data.paidAmount)}` : ""}
+              </Txt>
+            </>
+          )}
+        </Page>
+      ))}
     </Document>
   );
 }

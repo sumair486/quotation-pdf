@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Quotation Maker",
-  description: "Fill in the details and download a quotation as PDF.",
+  title: "X imaging Invoice",
+  description: "Fill in the details and download the invoice as PDF.",
 };
 
 export default function RootLayout({ children }) {

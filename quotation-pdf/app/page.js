@@ -5,21 +5,19 @@ import { useEffect, useState } from "react";
 const today = () => new Date().toISOString().slice(0, 10);
 const emptyRow = () => ({ id: Math.random().toString(36).slice(2), description: "", amount: "" });
 
-const SAVED_KEYS = ["companyName", "companyAddress", "companyContact", "signatory", "currency"];
-
 const initial = {
-  companyName: "",
-  companyAddress: "",
-  companyContact: "",
-  signatory: "",
   currency: "Rs.",
   number: "",
   date: today(),
-  toName: "",
-  toAddress: "",
-  subject: "",
-  notes: "",
+  billTo: "",
+  customer: "",
+  address1: "",
+  address2: "",
+  project: "",
   rows: [emptyRow()],
+  payDetails: "",
+  paidDate: "",
+  paidAmount: "",
 };
 
 const input =
@@ -49,21 +47,18 @@ export default function Home() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Remember company details on this device
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("quotation-company") || "{}");
-      setF((p) => ({ ...p, ...saved }));
+      const cur = localStorage.getItem("invoice-currency");
+      if (cur) setF((p) => ({ ...p, currency: cur }));
     } catch (e) {}
   }, []);
 
   useEffect(() => {
     try {
-      const toSave = {};
-      SAVED_KEYS.forEach((k) => (toSave[k] = f[k]));
-      localStorage.setItem("quotation-company", JSON.stringify(toSave));
+      localStorage.setItem("invoice-currency", f.currency);
     } catch (e) {}
-  }, [f.companyName, f.companyAddress, f.companyContact, f.signatory, f.currency]);
+  }, [f.currency]);
 
   const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
   const setRow = (id, k, v) =>
@@ -77,21 +72,22 @@ export default function Home() {
 
   async function download() {
     setError("");
-    if (!f.toName.trim()) return setError("Enter who the quotation is addressed to.");
+    if (!f.customer.trim()) return setError("Enter the customer name.");
     if (!f.rows.some((r) => r.description.trim()))
       return setError("Add at least one work description.");
 
     setBusy(true);
     try {
-      const [{ pdf }, { default: QuotationPDF }] = await Promise.all([
+      const [{ pdf }, { default: InvoicePDF }] = await Promise.all([
         import("@react-pdf/renderer"),
         import("../components/QuotationPDF"),
       ]);
-      const blob = await pdf(<QuotationPDF data={f} />).toBlob();
+      const bg = `${window.location.origin}/invoice-bg.jpg`;
+      const blob = await pdf(<InvoicePDF data={f} bg={bg} />).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Quotation-${(f.number || f.toName).replace(/[^a-z0-9]+/gi, "-")}.pdf`;
+      a.download = `Invoice-${(f.number || f.customer).replace(/[^a-z0-9]+/gi, "-")}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -106,48 +102,44 @@ export default function Home() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 pb-32 pt-8 sm:pt-12">
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight">Quotation Maker</h1>
-        <p className="mt-1 text-slate-600">Fill in the details, then download a ready-to-send PDF.</p>
+      <header className="mb-6 flex items-center gap-4">
+        <div className="h-12 w-12 shrink-0 bg-[#ffe34d] p-1">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <path d="M8 0h26l16 33L66 0h26L62 50l30 50H66L50 67 34 100H8l30-50z" fill="#1c1a17" />
+          </svg>
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">X imaging invoice</h1>
+          <p className="text-slate-600">Fill in the details and download the invoice as PDF.</p>
+        </div>
       </header>
 
       <div className="space-y-5">
-        <Section title="Your company" hint="Saved on this device, so you only type it once.">
+        <Section title="Invoice details">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Company name">
-              <input className={input} value={f.companyName} onChange={set("companyName")} placeholder="Khan Builders" />
-            </Field>
-            <Field label="Phone / email">
-              <input className={input} value={f.companyContact} onChange={set("companyContact")} placeholder="0300 0000000 · info@example.com" />
-            </Field>
-            <Field label="Address" className="sm:col-span-2">
-              <input className={input} value={f.companyAddress} onChange={set("companyAddress")} placeholder="Street, city" />
-            </Field>
-            <Field label="Signed by">
-              <input className={input} value={f.signatory} onChange={set("signatory")} placeholder="Name of signatory" />
-            </Field>
-            <Field label="Currency">
-              <input className={input} value={f.currency} onChange={set("currency")} placeholder="Rs." />
-            </Field>
-          </div>
-        </Section>
-
-        <Section title="Quotation details">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Quotation no.">
-              <input className={input} value={f.number} onChange={set("number")} placeholder="Q-001" />
+            <Field label="Invoice number">
+              <input className={input} value={f.number} onChange={set("number")} placeholder="001" />
             </Field>
             <Field label="Date">
               <input type="date" className={input} value={f.date} onChange={set("date")} />
             </Field>
-            <Field label="To (name)" className="sm:col-span-2">
-              <input className={input} value={f.toName} onChange={set("toName")} placeholder="Client or company name" />
+            <Field label="Bill to (optional)" className="sm:col-span-2">
+              <input className={input} value={f.billTo} onChange={set("billTo")} placeholder="Department or contact person" />
             </Field>
-            <Field label="To (address)" className="sm:col-span-2">
-              <input className={input} value={f.toAddress} onChange={set("toAddress")} placeholder="Client address" />
+            <Field label="Customer" className="sm:col-span-2">
+              <input className={input} value={f.customer} onChange={set("customer")} placeholder="Hospital or client name" />
             </Field>
-            <Field label="Subject" className="sm:col-span-2">
-              <input className={input} value={f.subject} onChange={set("subject")} placeholder="Quotation for office renovation" />
+            <Field label="Address line 1" className="sm:col-span-2">
+              <input className={input} value={f.address1} onChange={set("address1")} />
+            </Field>
+            <Field label="Address line 2" className="sm:col-span-2">
+              <input className={input} value={f.address2} onChange={set("address2")} />
+            </Field>
+            <Field label="Project" className="sm:col-span-2">
+              <input className={input} value={f.project} onChange={set("project")} placeholder="e.g. X-ray machine servicing" />
+            </Field>
+            <Field label="Currency">
+              <input className={input} value={f.currency} onChange={set("currency")} placeholder="Rs." />
             </Field>
           </div>
         </Section>
@@ -160,7 +152,7 @@ export default function Home() {
                 <textarea
                   rows={2}
                   className={`${input} resize-y`}
-                  placeholder="Work description"
+                  placeholder="Description"
                   value={r.description}
                   onChange={(e) => setRow(r.id, "description", e.target.value)}
                 />
@@ -169,7 +161,7 @@ export default function Home() {
                   inputMode="decimal"
                   min="0"
                   className={`${input} col-start-2 sm:col-start-auto`}
-                  placeholder="Amount"
+                  placeholder="Total"
                   value={r.amount}
                   onChange={(e) => setRow(r.id, "amount", e.target.value)}
                 />
@@ -194,14 +186,18 @@ export default function Home() {
           </button>
         </Section>
 
-        <Section title="Terms & notes" hint="Optional. Payment terms, validity, conditions.">
-          <textarea
-            rows={4}
-            className={`${input} resize-y`}
-            value={f.notes}
-            onChange={set("notes")}
-            placeholder="50% advance, balance on completion. Quotation valid for 15 days."
-          />
+        <Section title="Payment" hint="Optional. Fill in only if payment is already received.">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Details (cheque / cash / online)">
+              <input className={input} value={f.payDetails} onChange={set("payDetails")} placeholder="Online – ref 1234" />
+            </Field>
+            <Field label="Paid date">
+              <input type="date" className={input} value={f.paidDate} onChange={set("paidDate")} />
+            </Field>
+            <Field label="Amount paid">
+              <input type="number" inputMode="decimal" min="0" className={input} value={f.paidAmount} onChange={set("paidAmount")} />
+            </Field>
+          </div>
         </Section>
       </div>
 
