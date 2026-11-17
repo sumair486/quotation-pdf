@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const emptyRow = () => ({ id: Math.random().toString(36).slice(2), description: "", amount: "" });
 
+// Payment details people can pick from. Add or edit entries here.
+const PAYMENT_OPTIONS = ["1652820951004262/MCB/umair shah", "Cash", "Cheque"];
+
 const initial = {
-  currency: "Rs.",
+  type: "invoice",
   number: "",
   date: today(),
   billTo: "",
   customer: "",
-  address1: "",
-  address2: "",
+  address: "",
   project: "",
   rows: [emptyRow()],
   payDetails: "",
@@ -47,19 +49,6 @@ export default function Home() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    try {
-      const cur = localStorage.getItem("invoice-currency");
-      if (cur) setF((p) => ({ ...p, currency: cur }));
-    } catch (e) {}
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("invoice-currency", f.currency);
-    } catch (e) {}
-  }, [f.currency]);
-
   const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
   const setRow = (id, k, v) =>
     setF((p) => ({ ...p, rows: p.rows.map((r) => (r.id === id ? { ...r, [k]: v } : r)) }));
@@ -67,11 +56,13 @@ export default function Home() {
   const removeRow = (id) =>
     setF((p) => ({ ...p, rows: p.rows.length > 1 ? p.rows.filter((r) => r.id !== id) : p.rows }));
 
+  const isQuote = f.type === "quotation";
   const total = f.rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const money = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
 
   async function download() {
     setError("");
+    const isQuote = f.type === "quotation";
     if (!f.customer.trim()) return setError("Enter the customer name.");
     if (!f.rows.some((r) => r.description.trim()))
       return setError("Add at least one work description.");
@@ -82,12 +73,12 @@ export default function Home() {
         import("@react-pdf/renderer"),
         import("../components/QuotationPDF"),
       ]);
-      const bg = `${window.location.origin}/invoice-bg.jpg`;
+      const bg = `${window.location.origin}/${isQuote ? "quotation" : "invoice"}-bg.jpg`;
       const blob = await pdf(<InvoicePDF data={f} bg={bg} />).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Invoice-${(f.number || f.customer).replace(/[^a-z0-9]+/gi, "-")}.pdf`;
+      a.download = `${isQuote ? "Quotation" : "Invoice"}-${(f.number || f.customer).replace(/[^a-z0-9]+/gi, "-")}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -109,15 +100,34 @@ export default function Home() {
           </svg>
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">X imaging invoice</h1>
-          <p className="text-slate-600">Fill in the details and download the invoice as PDF.</p>
+          <h1 className="text-2xl font-bold tracking-tight">X imaging</h1>
+          <p className="text-slate-600">Choose the type, fill in the details and download the PDF.</p>
         </div>
       </header>
 
       <div className="space-y-5">
-        <Section title="Invoice details">
+        <Section title="Document details">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Invoice number">
+            <Field label="Type" className="sm:col-span-2">
+              <div className="grid grid-cols-2 gap-2">
+                {[["invoice", "Invoice"], ["quotation", "Quotation"]].map(([v, l]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setF((p) => ({ ...p, type: v }))}
+                    aria-pressed={f.type === v}
+                    className={`rounded-md border px-4 py-2.5 text-[15px] font-semibold ${
+                      f.type === v
+                        ? "border-accent bg-accent text-white"
+                        : "border-line bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field label={isQuote ? "Quotation number" : "Invoice number"}>
               <input className={input} value={f.number} onChange={set("number")} placeholder="001" />
             </Field>
             <Field label="Date">
@@ -129,17 +139,11 @@ export default function Home() {
             <Field label="Customer" className="sm:col-span-2">
               <input className={input} value={f.customer} onChange={set("customer")} placeholder="Hospital or client name" />
             </Field>
-            <Field label="Address line 1" className="sm:col-span-2">
-              <input className={input} value={f.address1} onChange={set("address1")} />
-            </Field>
-            <Field label="Address line 2" className="sm:col-span-2">
-              <input className={input} value={f.address2} onChange={set("address2")} />
+            <Field label="Address" className="sm:col-span-2">
+              <input className={input} maxLength={150} value={f.address} onChange={set("address")} />
             </Field>
             <Field label="Project" className="sm:col-span-2">
               <input className={input} value={f.project} onChange={set("project")} placeholder="e.g. X-ray machine servicing" />
-            </Field>
-            <Field label="Currency">
-              <input className={input} value={f.currency} onChange={set("currency")} placeholder="Rs." />
             </Field>
           </div>
         </Section>
@@ -186,19 +190,26 @@ export default function Home() {
           </button>
         </Section>
 
-        <Section title="Payment" hint="Optional. Fill in only if payment is already received.">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Details (cheque / cash / online)">
-              <input className={input} value={f.payDetails} onChange={set("payDetails")} placeholder="Online – ref 1234" />
-            </Field>
-            <Field label="Paid date">
-              <input type="date" className={input} value={f.paidDate} onChange={set("paidDate")} />
-            </Field>
-            <Field label="Amount paid">
-              <input type="number" inputMode="decimal" min="0" className={input} value={f.paidAmount} onChange={set("paidAmount")} />
-            </Field>
-          </div>
-        </Section>
+        {!isQuote && (
+          <Section title="Payment" hint="Optional. Fill in only if payment is already received.">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="Details">
+                <select className={input} value={f.payDetails} onChange={set("payDetails")}>
+                  <option value="">Select…</option>
+                  {PAYMENT_OPTIONS.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Paid date">
+                <input type="date" className={input} value={f.paidDate} onChange={set("paidDate")} />
+              </Field>
+              <Field label="Amount paid">
+                <input type="number" inputMode="decimal" min="0" className={input} value={f.paidAmount} onChange={set("paidAmount")} />
+              </Field>
+            </div>
+          </Section>
+        )}
       </div>
 
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white/95 backdrop-blur">
@@ -206,7 +217,7 @@ export default function Home() {
           <div>
             <div className="text-xs text-slate-500">Total</div>
             <div className="text-xl font-bold">
-              {f.currency} {money(total)}
+              Rs. {money(total)}
             </div>
           </div>
           <div className="flex items-center gap-3">
